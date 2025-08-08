@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Set both tab and window titles (OSC 1 + OSC 2)
+set_title() {
+  local t="$1"
+  printf "\033]1;%s\007" "$t"   # tab
+  printf "\033]2;%s\007" "$t"   # window
+}
+
 # =================== THEME (calm, modern) ===================
 # 256-color friendly soft blues/purples; falls back to basic colors when needed
 supports_256() { tput colors >/dev/null 2>&1 && [ "$(tput colors)" -ge 256 ]; }
@@ -25,16 +32,25 @@ else
 fi
 
 # =================== CONFIG (flags or env) ===================
-NAME="${NAME:-Dikpaal}"
+NAME="${NAME:-Dikpaal Patel}"
+MSG="${MSG:-Excited to join the AI team at}"
 COMPANY="${COMPANY:-Sendbird}"
 ROLE="${ROLE:-AI Engineering Intern}"
 START="${START:-Fall 2025}"
+# FIX: LOGO must be set via the --logo flag for it to appear.
+# Example: --logo "/path/to/your/logo.png" or --logo "/path/to/art.ans"
 LOGO="${LOGO:-}"
 SPEED="${SPEED:-30}"                 # chars per second
 PAUSE="${PAUSE:-0.5}"                # short beats
 TYPE_RESULTS="${TYPE_RESULTS:-no}"   # yes/no — type results too?
 QUIET_BORDER="${QUIET_BORDER:-no}"   # yes to hide borders
 BAR_STEPS="${BAR_STEPS:-34}"         # main bar resolution
+USE_CURSOR="${USE_CURSOR:-yes}"   # yes/no — draw a faux cursor when typing
+CURSOR_SYM="${CURSOR_SYM:-▌}"     # try ▉ █ ▍ | _
+
+
+# call early, and again right before long animations
+set_title "Joining $COMPANY — $NAME"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -77,6 +93,46 @@ TYPING_INTERVAL="$(calc_interval)"
 
 type_out() {
   local msg="$1"
+
+  if is_yes "$USE_CURSOR"; then
+    local rest="$msg" chunk c j endch
+
+    while [[ -n "$rest" ]]; do
+      # If starts with ESC [
+      if [[ "${rest:0:1}" == $'\x1b' && "${rest:1:1}" == "[" ]]; then
+        # Consume until final byte in @..~
+        j=2
+        while (( j < ${#rest} )); do
+          endch="${rest:j:1}"
+          # Final bytes are ASCII 0x40..0x7E => [@-~]
+          if [[ "$endch" =~ [@-~] ]]; then
+            (( j++ ))
+            chunk="${rest:0:j}"
+            printf "%s" "$chunk"
+            rest="${rest:j}"
+            break
+          fi
+          (( j++ ))
+        done
+        # If we didn't find a final byte, just print what we have and bail
+        if (( j >= ${#rest} )); then
+          printf "%s" "$rest"
+          rest=""
+        fi
+        continue
+      fi
+
+      # Normal visible char with faux cursor
+      c="${rest:0:1}"
+      rest="${rest:1}"
+      printf "%s%s" "$c" "$CURSOR_SYM"
+      sleep "$TYPING_INTERVAL"
+      printf "\b"
+    done
+    return
+  fi
+
+  # No cursor mode: keep pv fast path
   if command -v pv >/dev/null 2>&1; then
     printf "%s" "$msg" | pv -qL "$SPEED"
   else
@@ -88,7 +144,17 @@ type_out() {
     done
   fi
 }
-typln(){ type_out "$1"; printf "\n"; }
+
+flush_cursor() { is_yes "$USE_CURSOR" && printf " \b"; }
+
+# FIX: The original typln function was incorrect.
+# It ignored its arguments and only printed a newline.
+# This corrected version calls type_out() to print the message.
+typln() {
+  type_out "$@"
+  flush_cursor
+  printf "\n"
+}
 
 # =================== ANIMATIONS ===================
 fade_in_line() {
@@ -160,29 +226,6 @@ soft_rule() {
   printf "%s\n%s%s\n" "$line" "$C_RESET" ""
 }
 
-banner() {
-  local msg="$1"
-  if command -v figlet >/dev/null 2>&1; then
-    if command -v lolcat >/dev/null 2>&1; then
-      figlet -f Standard "$msg" | lolcat -f
-    else
-      # manual gradient per line
-      while IFS= read -r line; do
-        local out="" i col
-        for (( i=0; i<${#line}; i++ )); do
-          col=${GRADIENT[i%${#GRADIENT[@]}]}
-          out+=$(printf "%s%s" "$(C_PRIMARY $col)" "${line:i:1}")
-        done
-        printf "%s%s\n" "$out" "$C_RESET"
-      done < <(figlet -f Standard "$msg")
-    fi
-  else
-    center "${C_ACCENT}==============================${C_RESET}"
-    center "${C_BOLD}Happy to announce…${C_RESET}"
-    center "${C_ACCENT}==============================${C_RESET}"
-  fi
-}
-
 print_logo() {
   [[ -z "$LOGO" ]] && return 0
   echo
@@ -202,7 +245,7 @@ fake_cmd_and_result() {
   local cmd="$1" result="$2"
   printf "%s$ %s%s" "$C_CMD" "$C_RESET" ""
   type_out "$cmd"
-  printf "\n"
+  flush_cursor; printf "\n"
   if is_yes "$TYPE_RESULTS"; then
     printf "%s" "$C_SUB"; type_out "$result"; printf "%s\n" "$C_RESET"
   else
@@ -210,7 +253,57 @@ fake_cmd_and_result() {
   fi
 }
 
+progress_with_caption() {
+  local caption="$1"
+  local steps="${2:-30}"
+
+  # 1) Caption
+  printf "%s%s%s\n" "$C_SUB" "$caption" "$C_RESET"
+
+  # 2) Progress bar on next line
+  gradient_bar "$steps"
+
+  # 3) Animate the BAR LINE itself:
+  # move to bar line, replace with a collapsing pill → checkmark → fade
+  tput cuu 1 2>/dev/null || true
+
+  # Build frames: collapsing bar
+  local w; w=$(cols); ((w=w-10)); ((w<10)) && w=10
+  local i dec frame
+  for (( i=w; i>=0; i-= (w/8>0?w/8:1) )); do
+    printf "\r\033[K["
+    # left side fades to nothing
+    printf "%s" "$(C_PRIMARY 99)"
+    printf "%*s" "$i" | tr ' ' '━'
+    printf "%s]" "$C_RESET"
+    sleep 0.03
+  done
+
+  # Final pill with check + shimmer
+  local frames=(
+    "$(printf "%s[%s✓%s] %sAll set%s" "$(C_PRIMARY 141)" "$C_BOLD" "$C_RESET" "$C_SUB" "$C_RESET")"
+    "$(printf "%s[%s✓%s] %sAll set%s" "$(C_PRIMARY 99)"  "$C_BOLD" "$C_RESET" "$C_SUB" "$C_RESET")"
+    "$(printf "%s[%s✓%s] %sAll set%s" "$C_OK"            "$C_BOLD" "$C_RESET" "$C_SUB" "$C_RESET")"
+  )
+  for frame in "${frames[@]}"; do
+    printf "\r\033[K%s" "$frame"
+    sleep 0.06
+  done
+
+  # 4) Optional: fade the pill away to keep it clean
+  sleep 0.20
+  printf "\r\033[K%s[%s✓%s] All set%s" "$C_DIM" "$C_BOLD" "$C_RESET" "$C_RESET"
+  sleep 0.15
+  printf "\r\033[K"   # clear the line
+
+  # 5) Move cursor down to resume flow under the old bar
+  tput cud 1 2>/dev/null || true
+}
+
 # =================== SCENE ===================
+
+# call early, and again right before long animations
+set_title "Joining $COMPANY — $NAME"
 clear
 hide_cursor
 
@@ -222,17 +315,27 @@ gradient_bar "$BAR_STEPS"
 sleep "$PAUSE"
 
 clear
-banner "Joining $COMPANY"
+# banner "Joining $COMPANY"
 sleep "$PAUSE"
 soft_rule
 
 fake_cmd_and_result "whoami" "$NAME"; sleep "$PAUSE"
-fake_cmd_and_result "echo role" "$ROLE"; sleep "$PAUSE"
-fake_cmd_and_result "date -u" "$(date -u)"; sleep "$PAUSE"
-fake_cmd_and_result "echo start_date" "Start: $START"; sleep "$PAUSE"
+fake_cmd_and_result "echo position" "$ROLE"; sleep "$PAUSE"
+fake_cmd_and_result "echo start_date" "$START"; sleep "$PAUSE"
 
 soft_rule
-typln "${C_SUB}Cloning mindset…${C_RESET}"
+# fade_in_line "${C_SUB}User message:${C_RESET}"
+# This will now correctly type out the message
+fake_cmd_and_result "echo user_message" "$MSG"; sleep "$PAUSE"
+# typln "${C_BOLD}Excited to join... ${C_RESET}"
+# sleep "$PAUSE"
+
+# This will print the logo if the --logo flag is used
+print_logo
+sleep "$PAUSE"
+
+soft_rule
+progress_with_caption "Special thanks to..." 28
 
 # Run a background faux task and show spinner
 (
@@ -241,18 +344,9 @@ typln "${C_SUB}Cloning mindset…${C_RESET}"
 ) &
 spinner $!
 
-gradient_bar 28
-pulse_line "✓ Curiosity pulled"
-pulse_line "✓ Shipping enabled"
-pulse_line "✓ Payments brain installed"
-sleep "$PAUSE"
-
-soft_rule
-fade_in_line "${C_SUB}Final message:${C_RESET}"
-typln "\"${C_BOLD}Thrilled to join ${COMPANY}. Let’s build cool things.${C_RESET}\""
-sleep "$PAUSE"
-
-print_logo
+pulse_line "✓ Jennifer Cole"
+pulse_line "✓ Kibeom Lee"
+pulse_line "✓ Sher Najafi"
 sleep "$PAUSE"
 
 soft_rule
