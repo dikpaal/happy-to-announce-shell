@@ -40,7 +40,7 @@ START="${START:-Fall 2025}"
 # FIX: LOGO must be set via the --logo flag for it to appear.
 # Example: --logo "/path/to/your/logo.png" or --logo "/path/to/art.ans"
 LOGO="${LOGO:-}"
-SPEED="${SPEED:-30}"                 # chars per second
+SPEED="${SPEED:-50}"                 # <<<<<<< MODIFIED: Slower typing speed (chars per second)
 PAUSE="${PAUSE:-0.5}"                # short beats
 TYPE_RESULTS="${TYPE_RESULTS:-no}"   # yes/no — type results too?
 QUIET_BORDER="${QUIET_BORDER:-no}"   # yes to hide borders
