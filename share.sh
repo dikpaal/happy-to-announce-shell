@@ -37,20 +37,17 @@ MSG="${MSG:-Excited to join the AI team at}"
 COMPANY="${COMPANY:-Sendbird}"
 ROLE="${ROLE:-AI Engineering Intern}"
 START="${START:-Fall 2025}"
-# FIX: LOGO must be set via the --logo flag for it to appear.
-# Example: --logo "/path/to/your/logo.png" or --logo "/path/to/art.ans"
 LOGO="${LOGO:-}"
-SPEED="${SPEED:-50}"                 # <<<<<<< MODIFIED: Slower typing speed (chars per second)
-PAUSE="${PAUSE:-0.5}"                # short beats
-TYPE_RESULTS="${TYPE_RESULTS:-no}"   # yes/no — type results too?
-QUIET_BORDER="${QUIET_BORDER:-no}"   # yes to hide borders
-BAR_STEPS="${BAR_STEPS:-34}"         # main bar resolution
-USE_CURSOR="${USE_CURSOR:-yes}"   # yes/no — draw a faux cursor when typing
-CURSOR_SYM="${CURSOR_SYM:-▌}"     # try ▉ █ ▍ | _
-
+SPEED="${SPEED:-50}"
+PAUSE="${PAUSE:-0.5}"
+TYPE_RESULTS="${TYPE_RESULTS:-no}"
+QUIET_BORDER="${QUIET_BORDER:-no}"
+BAR_STEPS="${BAR_STEPS:-34}"
+USE_CURSOR="${USE_CURSOR:-yes}"
+CURSOR_SYM="${CURSOR_SYM:-▌}"
 
 # call early, and again right before long animations
-set_title "Joining $COMPANY — $NAME"
+set_title "bash"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -75,7 +72,7 @@ trap 'reset_screen; show_cursor; printf "\n"' EXIT
 cols() { tput cols 2>/dev/null || echo 80; }
 center() {
   local text="$1"; local w; w=$(cols)
-  local raw="${text//\e\[[0-9;]*[a-zA-Z]/}"                    # strip ANSI for width calc
+  local raw="${text//\e\[[0-9;]*[a-zA-Z]/}" # strip ANSI for width calc
   local pad=$(( (w - ${#raw}) / 2 )); ((pad<0)) && pad=0
   printf "%*s%s\n" "$pad" "" "$text"
 }
@@ -147,9 +144,6 @@ type_out() {
 
 flush_cursor() { is_yes "$USE_CURSOR" && printf " \b"; }
 
-# FIX: The original typln function was incorrect.
-# It ignored its arguments and only printed a newline.
-# This corrected version calls type_out() to print the message.
 typln() {
   type_out "$@"
   flush_cursor
@@ -157,6 +151,89 @@ typln() {
 }
 
 # =================== ANIMATIONS ===================
+
+animate_logo_from_text() {
+    local logo_file="$1"
+    [[ -f "$logo_file" ]] || return 1
+
+    sleep 0.5
+    echo ""
+    echo ""
+
+    local lines=()
+    while IFS= read -r line; do
+        lines+=("$line")
+    done < "$logo_file"
+
+    local blur_chars=('#' '%' '@' '&' '8' 'B')
+    local rand_chars=(a s d f g h j k l q w e r t y u i o p z x c v b n m)
+    local total=${#lines[@]}
+    local i j char left right above below rand rand_line blur_line
+
+    # === Capture current cursor position as logo start anchor ===
+    tput sc # Save cursor position
+
+    # === Phase 1: Gibberish with noise-outline (top to bottom) ===
+    for (( i=0; i<total; i++ )); do
+        rand_line=""
+        for (( j=0; j<${#lines[i]}; j++ )); do
+            char="${lines[i]:$j:1}"
+            if [[ "$char" == " " ]]; then
+                # Check neighbors
+                left="${lines[i]:j-1:1}"
+                right="${lines[i]:j+1:1}"
+                above=""
+                below=""
+                [[ $i -gt 0 ]] && above="${lines[i-1]:$j:1}"
+                [[ $i -lt $((total-1)) ]] && below="${lines[i+1]:$j:1}"
+
+                if [[ "$left" != " " || "$right" != " " || "$above" != " " || "$below" != " " ]]; then
+                    rand_line+="."
+                else
+                    rand=$((RANDOM % ${#rand_chars[@]}))
+                    rand_line+="${rand_chars[$rand]}"
+                fi
+            else
+                rand=$((RANDOM % ${#rand_chars[@]}))
+                rand_line+="${rand_chars[$rand]}"
+            fi
+        done
+        echo "$rand_line"
+        sleep 0.05
+    done
+
+    sleep 0.5
+
+    # === Phase 2: Bottom to top blur ===
+    for (( i=total-1; i>=0; i-- )); do
+        tput cuu1
+        tput el
+
+        blur_line=""
+        for (( j=0; j<${#lines[i]}; j++ )); do
+            char="${lines[i]:$j:1}"
+            if [[ "$char" == " " ]]; then
+                blur_line+=" "
+            else
+                rand=$((RANDOM % ${#blur_chars[@]}))
+                blur_line+="${blur_chars[$rand]}"
+            fi
+        done
+
+        echo -ne "$blur_line\r"
+        sleep 0.07
+    done
+
+    sleep 0.5
+
+    # === Phase 3: Sharpen from top to bottom ===
+    tput rc # Restore saved position (top of logo)
+    for (( i=0; i<total; i++ )); do
+        echo "${lines[i]}"
+        sleep 0.07
+    done
+}
+
 fade_in_line() {
   local s="$1"
   # animate on the same line, then end with a single newline
@@ -228,17 +305,24 @@ soft_rule() {
 
 print_logo() {
   [[ -z "$LOGO" ]] && return 0
-  echo
-  if [[ "$LOGO" == *.ans || "$LOGO" == *.ansi || "$LOGO" == *.txt ]]; then
+  
+  if [[ "$LOGO" == *.txt ]]; then
+    animate_logo_from_text "$LOGO"
+  elif [[ "$LOGO" == *.ans || "$LOGO" == *.ansi ]]; then
+    echo
     cat "$LOGO"
+    echo
   elif command -v chafa >/dev/null 2>&1; then
+    echo
     chafa --symbols vhalf --size "$(cols)x20" "$LOGO"
+    echo
   elif command -v jp2a >/dev/null 2>&1; then
+    echo
     jp2a --width="$(cols)" "$LOGO"
+    echo
   else
     printf "%s[hint]%s Install %schafa%s or %sjp2a%s to render images in terminal.\n" "$C_SUB" "$C_RESET" "$C_ACCENT" "$C_RESET" "$C_ACCENT" "$C_RESET"
   fi
-  echo
 }
 
 fake_cmd_and_result() {
@@ -303,19 +387,17 @@ progress_with_caption() {
 # =================== SCENE ===================
 
 # call early, and again right before long animations
-set_title "Joining $COMPANY — $NAME"
+set_title "bash"
 clear
 hide_cursor
 
 # Terminal title (nice touch)
-printf "\033]0;Joining %s — %s\007" "$COMPANY" "$NAME"
 
 fade_in_line "${C_SUB}Initializing onboarding sequence…$C_RESET"
 gradient_bar "$BAR_STEPS"
 sleep "$PAUSE"
 
 clear
-# banner "Joining $COMPANY"
 sleep "$PAUSE"
 soft_rule
 
@@ -324,13 +406,9 @@ fake_cmd_and_result "echo position" "$ROLE"; sleep "$PAUSE"
 fake_cmd_and_result "echo start_date" "$START"; sleep "$PAUSE"
 
 soft_rule
-# fade_in_line "${C_SUB}User message:${C_RESET}"
-# This will now correctly type out the message
 fake_cmd_and_result "echo user_message" "$MSG"; sleep "$PAUSE"
-# typln "${C_BOLD}Excited to join... ${C_RESET}"
-# sleep "$PAUSE"
 
-# This will print the logo if the --logo flag is used
+# This will print the logo if the --logo flag is used, animating it if it's a .txt file
 print_logo
 sleep "$PAUSE"
 
